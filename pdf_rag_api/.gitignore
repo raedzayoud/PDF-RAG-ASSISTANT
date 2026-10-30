@@ -1,0 +1,18 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local secrets
+.env
+
+# Model caches and test artifacts
+.pytest_cache/
+.coverage
+
+# Local dev logs (never commit uvicorn console history)
+*.log
+
+# Local documents may contain private information; commit sample PDFs only intentionally.
+documents/*.pdf

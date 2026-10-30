@@ -1,0 +1,119 @@
+<div class="shell">
+  <aside class="sidebar" (dragover)="onDragOver($event)" (drop)="onDrop($event)" (dragleave)="onDragLeave()">
+    <div class="brand">
+      <span class="logo">📄</span>
+      <div>
+        <h1>PDF RAG</h1>
+        <p>Assistant documentaire</p>
+      </div>
+    </div>
+
+    <button class="new-chat" type="button" (click)="startNewDiscussion()">
+      <span class="plus">＋</span> Nouvelle discussion
+    </button>
+
+    <div class="history-head">
+      <span>Discussions</span>
+      @if (uploading()) {
+        <span class="hint">pling</span>
+      } @else if (syncing()) {
+        <span class="hint">pling indexation</span>
+      }
+    </div>
+
+    <div class="history" [class.dragging]="dragging()" (dragover)="onDragOver($event)" (drop)="onDrop($event)" (dragleave)="onDragLeave()">
+      @if (dragging() && !uploading() && !syncing()) {
+        <div class="drop-now">Dépose ton PDF ici 👇 (l'import + indexation démarrent automatiquement)</div>
+      }
+      @if (uploading() || syncing()) {
+        <div class="upload-row">
+          <div class="spinner"></div>
+          <span>{{ uploading() ? 'Import du PDF…' : 'Ré-indexation…' }}</span>
+        </div>
+      }
+
+      @for (s of sessions(); track s.session_id) {
+        <button
+          class="history-item"
+          type="button"
+          [class.active]="s.session_id === activeSessionId()"
+          (click)="openConversation(s.session_id)"
+        >
+          <span class="ico">💬</span>
+          <span class="txt">
+            <span class="title">{{ s.title ?? 'Nouvelle discussion' }}</span>
+            <span class="meta">{{ dayLabel(s.created_at) }} · {{ s.message_count }} msg</span>
+          </span>
+        </button>
+      }
+
+      @if (sessions().length === 0) {
+        <p class="history-empty">Aucune discussion pour l'instant.<br />Écris le premier message.</p>
+      }
+    </div>
+
+    <div class="side-foot">
+      Groq gpt-oss-20b · PostgreSQL
+    </div>
+  </aside>
+
+  <main class="chat">
+    <header class="chat-head">
+      <div>
+        <h2>{{ activeTitle() }}</h2>
+        <p>Réponses de tes PDFs ou de connaissances générales — le modèle choisit</p>
+      </div>
+    </header>
+
+    <div class="scroller" #scroller>
+      @if (messages().length === 0 && !pending()) {
+        <div class="empty">
+          <div class="empty-ico">💬</div>
+          <h3>Pose n'importe quelle question</h3>
+          <p>Question générale ou sur tes documents (importés avec 📎) — le chatbot décide lui-même<br>
+            quand s'appuyer sur les PDFs et cite la page quand il le fait.</p>
+        </div>
+      }
+
+      @for (msg of messages(); track msg.id ?? ($index)) {
+        <app-message-bubble [message]="msg" />
+      }
+
+      @if (pending()) {
+        <div class="row pending">
+          <div class="avatar bot">✨</div>
+          <div class="bubble typing">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      }
+    </div>
+
+    @if (chatError()) {
+      <div class="error-bar" role="alert">⚠️ {{ chatError() }}</div>
+    }
+
+    <footer class="composer">
+      <button class="attach" type="button" title="Importer un PDF" (click)="openFilePicker()" [disabled]="busy()">
+        📎
+      </button>
+      <input #fileInput type="file" accept="application/pdf" hidden (change)="onFilesChosen($event)" />
+      <textarea
+        [(ngModel)]="draft"
+        (keydown)="onInputKey($event)"
+        rows="1"
+        placeholder="Écris ta question… (Entrée pour envoyer)"
+        [disabled]="busy()"
+      ></textarea>
+      <button class="send" type="button" (click)="send()" [disabled]="busy() || !draft().trim()">
+        ➤
+      </button>
+    </footer>
+
+    @if (toast(); as t) {
+      <div class="toast" [class.ok]="t.kind === 'ok'" [class.error]="t.kind === 'error'">
+        {{ t.text }}
+      </div>
+    }
+  </main>
+</div>

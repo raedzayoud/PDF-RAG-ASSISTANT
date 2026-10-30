@@ -1,0 +1,25 @@
+# Run only PostgreSQL in Docker; run the Python API directly in your virtual environment.
+services:
+  postgres:
+    image: postgres:16
+    container_name: pdf-rag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rag_memory}
+      POSTGRES_USER: ${POSTGRES_USER:-rag_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_password_change_me}
+    ports:
+      # Host port 5433: a local PostgreSQL 18 service occupies 5432 on this machine.
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag_user} -d ${POSTGRES_DB:-rag_memory}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+# This named volume keeps conversation history when the container is recreated.
+# `docker compose down -v` deletes it, so do not use that command unless you intend to erase the DB.
+volumes:
+  postgres_data:
