@@ -1,161 +1,304 @@
+
 # 📄 PDF-RAG-ASSISTANT
 
-**Assistant conversationnel RAG full-stack** : posez n'importe quelle question — générale ou sur vos PDFs — et le chatbot décide lui-même si la réponse provient de ses connaissances ou de vos documents (avec citations `[fichier.pdf, page N]`).
+<p align="center">
+  <img src="image.jpg" alt="PDF-RAG-ASSISTANT" width="100%" />
+</p>
 
-> Angular 21 · FastAPI · PostgreSQL 16 · Groq (`openai/gpt-oss-20b`) · embeddings locaux (sentence-transformers)
+**Full-Stack RAG Conversational Assistant**
 
----
+Ask any question — general knowledge or questions about your PDFs. The chatbot intelligently decides whether to answer using its general knowledge or your uploaded documents, providing page-level citations.
 
-## ✨ Fonctionnalités
-
-| | |
-|---|---|
-| 🤖 **Chat hybride** | Question générale → connaissances du modèle ; question sur les documents → réponse fondée + citation de la page. CSV decision par le LLM lui-même (pas de routeur forcé). |
-| 📎 **Upload PDF** | Chapman/Barre : drag & drop dans la barre latérale ou bouton 📎 → upload → réindexation automatique (chunking + embeddings + similarité cosinus). |
-| 💬 **Sidebar ChatGPT** | Nouvelle discussion (*créée seulement au premier envoi*), liste de l'historique complet stocké en PostgreSQL, clic pour reprendre une conversation abandonnée — même après F5 ou plusieurs jours. |
-| 🧠 **Mémoire conversationnelle** | Les 10 derniers tours de dialogue sont injectés dans le prompt (`HISTORY_MESSAGES`), les tours complets persistés en base. |
-| 🕐 **Session persistée** | `sessionId` en `localStorage` → historique recharge automatiquement. |
-| 🎨 **UI light épurée** | Bulles animées, indicateur « typing », toasts, dropzone visuelle, design 100 % CSS (aucune lib UI). |
-| 🧪 **Unit testé** | Vitest (frontend), structure prête pour pytest (backend). |
+> Angular 21 · FastAPI · PostgreSQL 16 · Groq (`openai/gpt-oss-20b`) · Sentence Transformers
 
 ---
 
-## 🏗 Architecture
+## ✨ Features
 
-```
-┌──────────────┐   HTTP/CORS    ┌───────────────────────────────┐
-│   Angular 21 │◄──────────────►│   FastAPI (orchestrateur)     │
-│  localhost:4200                │   app/main.py                 │
-└──────────────┘                └──────────────┬────────────────┘
-                                               │
-         ┌─────────────────────────────────────┼──────────────────────────┐
-         ▼                                     ▼                          ▼
-┌─────────────────────┐            ┌──────────────────────┐   ┌──────────────────────┐
-│ RAG pipeline        │            │ LLMService           │   │ ChatMemoryStore      │
-│ rag_pipeline.py     │            │ llm_service.py       │   │ chat_memory.py       │
-│                     │            │                      │   │                      │
-│ PDFLoader +         │            │ Groq (OpenAI-compat) │   │ chat_sessions        │
-│ TextChunker ─────►  │            │ openai/gpt-oss-20b   │   │ chat_messages        │
-│ EmbeddingService    │            │ base_url api.groq.   │   │ (SQLAlchemy 2.0,     │
-│ (MiniLM-L12 v2      │            │ com/openai/v1        │   │  PostgreSQL 16       │
-│  LOCAL, ~500 Mo     │            │                      │   │  Docker :5433)       │
-│  cache HF)          │            │ decide: doc vs       │   │                      │
-│        ▼            │            │ general + citations  │   │                      │
-│ InMemoryVectorStore │            └──────────────────────┘   └──────────────────────┘
-│ (NumPy cosine)      │
-└─────────────────────┘
-```
-
-### Qui fait quoi (mapping fichier ⇄ rôle)
-
-| Fichier backend | Rôle |
+| Feature | Description |
 |---|---|
-| `app/main.py` | **Orchestrateur REST** : lifespan (init tables + index), les 7 endpoints, CORS, contrôles upload |
-| `app/rag_pipeline.py` | **Orchestrateur RAG** : coordonne loader → chunker → embeddings → retriever → LLM |
-| `app/pdf_loader.py` | Lecture des PDFs de `documents/` (pypdf) |
-| `app/text_chunker.py` | Découpage en passages chevauchants (`CHUNK_SIZE=1000`, `CHUNK_OVERLAP=150`) |
-| `app/embedding_service.py` | Encodeur local `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (texte → vecteur 384-d, gratuit, tourne sur votre machine) |
-| `app/vector_store.py` | **Index vectoriel IN MEMORY** (NumPy + similarité cosinus, re-sync au démarrage) |
-| `app/retriever.py` | Top-K passages les plus proches de la question (`TOP_K=4`) |
-| `app/llm_service.py` | **LLM** : client OpenAI SDK pointé sur Groq ; prompt hybride « réponds à tout, cite si tu utilises le contexte » |
-| `app/chat_memory.py` | Historique : sessions + messages + titres (1er message utilisateur) |
-| `app/database.py` / `app/db_models.py` | Engine SQLAlchemy + tables `chat_sessions` / `chat_messages` |
-| `app/config.py` | Toutes les variables `.env` |
+| 🤖 **Hybrid AI Chat** | General questions are answered using the LLM's knowledge; document-related questions use PDF context with page citations. The LLM itself decides whether to use document context. |
+| 📎 **PDF Upload** | Drag and drop PDFs into the sidebar or use the attachment button. Automatic indexing with chunking, embeddings, and cosine similarity. |
+| 💬 **ChatGPT-Style Sidebar** | Create conversations on the first message, browse chat history, and resume previous conversations. |
+| 🧠 **Conversation Memory** | The last 10 dialogue turns are included in the LLM prompt. Complete conversations are persisted in PostgreSQL. |
+| 🕐 **Persistent Sessions** | Session ID stored in `localStorage`, allowing conversations to survive page refreshes. |
+| 🎨 **Modern Light UI** | Animated message bubbles, typing indicator, toast notifications, drag-and-drop zone, and custom CSS design. |
+| 🧪 **Unit Testing** | Vitest for frontend testing; backend structure prepared for pytest. |
+
+---
+
+## 🏗️ Architecture
+
+```text
+┌──────────────────┐       HTTP / CORS       ┌──────────────────────────┐
+│                  │ ◄─────────────────────► │                          │
+│   Angular 21     │                         │   FastAPI Backend        │
+│                  │                         │   app/main.py            │
+└──────────────────┘                         └────────────┬─────────────┘
+                                                         │
+                       ┌─────────────────────────────────┼──────────────────────┐
+                       ▼                                 ▼                      ▼
+             ┌──────────────────┐             ┌──────────────────┐   ┌──────────────────┐
+             │   RAG Pipeline   │             │    LLMService    │   │ ChatMemoryStore  │
+             │                  │             │                  │   │                  │
+             │ PDFLoader        │             │ Groq API         │   │ Chat Sessions    │
+             │ TextChunker      │             │ GPT-OSS-20B      │   │ Chat Messages    │
+             │ EmbeddingService │             │ Hybrid Prompt    │   │ SQLAlchemy 2.0   │
+             │ VectorStore      │             │ Citations        │   │ PostgreSQL 16    │
+             │ Retriever        │             │                  │   │                  │
+             └──────────────────┘             └──────────────────┘   └──────────────────┘
+```
+
+### Backend Architecture
+
+| File | Responsibility |
+|---|---|
+| `app/main.py` | REST API orchestrator, application lifespan, database initialization, CORS, and upload validation. |
+| `app/rag_pipeline.py` | Coordinates the complete RAG pipeline: loading, chunking, embeddings, retrieval, and LLM. |
+| `app/pdf_loader.py` | Extracts text from PDF documents using pypdf. |
+| `app/text_chunker.py` | Splits documents into overlapping chunks (`CHUNK_SIZE=1000`, `CHUNK_OVERLAP=150`). |
+| `app/embedding_service.py` | Generates local embeddings using Sentence Transformers. |
+| `app/vector_store.py` | In-memory vector index using NumPy and cosine similarity. |
+| `app/retriever.py` | Retrieves the top 4 most relevant document chunks. |
+| `app/llm_service.py` | Integrates Groq through the OpenAI-compatible SDK and generates hybrid answers. |
+| `app/chat_memory.py` | Manages chat sessions, message history, and conversation titles. |
+| `app/database.py` | SQLAlchemy database engine and configuration. |
+| `app/db_models.py` | PostgreSQL models for chat sessions and messages. |
+| `app/config.py` | Centralized environment configuration. |
+
+### Frontend Architecture
+
+| Component / File | Responsibility |
+|---|---|
+| `components/chat-page/` | Main interface, sidebar, chat history, PDF upload, and message composer. |
+| `components/message-bubble/` | Displays user and assistant messages. |
+| `services/pdf-chat-api.service.ts` | HTTP client and API error handling. |
+| `models/chat.models.ts` | TypeScript interfaces and API contracts. |
+
+---
+
+## 🛠️ Tech Stack
 
 ### Frontend
+- Angular 21
+- TypeScript
+- HTML5 / CSS3
+- RxJS
+- Vitest
 
-| Fichier | Rôle |
-|---|---|
-| `components/chat-page/` | Écran : sidebar (sessions, dropzone) + chat + composer 📎 |
-| `components/message-bubble/` | Bulle user / assistant (sans affichage de sources — design volontairement épuré) |
-| `services/pdf-chat-api.service.ts` | Client HTTP + messages d'erreur FR (422/404/502/503) |
-| `models/chat.models.ts` | Contrat TypeScript ⇄ FastAPI |
+### Backend
+- Python 3.13+
+- FastAPI
+- SQLAlchemy 2.0
+- Pydantic
+- PyPDF
+- NumPy
+
+### Artificial Intelligence
+- Groq API
+- OpenAI-compatible SDK
+- `openai/gpt-oss-20b`
+- Sentence Transformers
+- `paraphrase-multilingual-MiniLM-L12-v2`
+- Local vector embeddings
+- Retrieval-Augmented Generation (RAG)
+- Cosine Similarity
+
+### Database & Infrastructure
+- PostgreSQL 16
+- Docker & Docker Compose
+- Local in-memory vector store
 
 ---
 
-## 🚀 Démarrage rapide
+## 🚀 Getting Started
 
-### Prérequis
-- Python **3.13+**, Node **20+** (npm), Docker Desktop
-- Compte [Groq](https://console.groq.com/) gratuit → créer une **API key** (`gsk_...`)
+### Prerequisites
 
-### 1) PostgreSQL en Docker
+Make sure you have installed:
+
+- Python 3.13+
+- Node.js 20+
+- npm
+- Docker Desktop
+- A free Groq API key from [Groq Console](https://console.groq.com/)
+
+### 1. Clone the Repository
 
 ```bash
-cd pdf_rag_api
-docker compose up -d          # postgres:16 sur le port hôte 5433
+git clone https://github.com/raedzayoud/PDF-RAG-ASSISTANT.git
+cd PDF-RAG-ASSISTANT
 ```
 
-### 2) Backend FastAPI
+### 2. Start PostgreSQL
 
 ```bash
 cd pdf_rag_api
-python -m venv .venv && .venv\Scripts\activate    # (Windows)
+docker compose up -d
+```
+
+PostgreSQL runs on port `5433` on the host machine.
+
+### 3. Configure the Backend
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+```
+
+Windows:
+
+```powershell
+.venv\Scripts\activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
-
-copy .env.example .env          # puis coller VOTRE GROQ_API_KEY dans .env
-uvicorn app.main:app --reload   # http://127.0.0.1:8000/docs
 ```
 
-Le 1er démarrage télécharge le modèle d'embeddings (~500 Mo, une seule fois, cache `~/.cache/huggingface`).
+Create your environment file:
 
-### 3) Frontend Angular
+```powershell
+copy .env.example .env
+```
+
+Configure your `.env` file with your Groq API key and PostgreSQL connection details.
+
+### 4. Run FastAPI
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Backend:
+
+`http://127.0.0.1:8000`
+
+Interactive API documentation:
+
+`http://127.0.0.1:8000/docs`
+
+### 5. Start Angular
+
+Open another terminal:
 
 ```bash
 cd client
 npm install
-ng serve                         # http://localhost:4200
+ng serve
 ```
 
-### 4) Déposer des PDFs
-Clic 📎 ou drag & drop dans la sidebar → indexation automatique (`20+ passages` s'affichent). **Posez ensuite n'importe quelle question.**
+Frontend:
+
+`http://localhost:4200`
+
+### 6. Upload Your PDFs
+
+1. Open the Angular application.
+2. Upload a PDF using the attachment button or drag and drop.
+3. Wait for automatic document indexing.
+4. Ask questions about your uploaded documents.
+5. Receive answers with PDF filename and page citations.
+
+**Note:** The first startup downloads the embedding model (approximately 500 MB). It is cached locally for subsequent runs.
 
 ---
 
-## ⚙️ Variables d'environnement (`.env` — jamais commité)
+## ⚙️ Environment Variables
 
-Voir [`.env.example`](pdf_rag_api/.env.example) : clés Groq, modèle LLM, modèle d'embeddings, paramètres de chunking, PostgreSQL, CORS.
+Configure your `.env` file using `.env.example`.
 
-> 🔒 **Sécurité** : la clé Groq (et toute clé API) vit **strictement dans `.env`**, exclu du dépôt par `.gitignore`. Ne la collez jamais dans le code, les logs ou un commit.
+Typical configuration includes:
+
+- `GROQ_API_KEY`
+- `LLM_MODEL`
+- `EMBEDDING_MODEL`
+- `CHUNK_SIZE`
+- `CHUNK_OVERLAP`
+- `TOP_K`
+- `DATABASE_URL`
+- `CORS_ORIGINS`
+
+**Security:** Never commit your `.env` file or expose your Groq API key. Keep credentials in environment variables and exclude `.env` through `.gitignore`.
 
 ---
 
-## 🔌 API REST (base : `http://127.0.0.1:8000`)
+## 🔌 REST API
 
-| Méthode | Route | Rôle |
+Base URL: `http://127.0.0.1:8000`
+
+| Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/health` | Statut |
-| `GET`/`POST` | `/api/sessions` | Lister les conversations / créer une session |
-| `GET` | `/api/sessions/{id}/messages` | Historique d'une session |
-| `POST` | `/api/chat` | `{session_id, question}` → `{answer, sources}` |
-| `POST` | `/api/documents/upload` | multipart `file` (.pdf, ≤ 20 Mo) |
-| `POST` | `/api/documents/sync` | Rebuild de l'index vectoriel |
-| `GET` | `/api/documents/status` | `{ready, indexed_chunks}` |
+| GET | `/api/health` | Check backend status. |
+| GET | `/api/sessions` | Retrieve all conversations. |
+| POST | `/api/sessions` | Create a new conversation. |
+| GET | `/api/sessions/{id}/messages` | Retrieve conversation messages. |
+| POST | `/api/chat` | Send a question and receive an AI response. |
+| POST | `/api/documents/upload` | Upload a PDF (maximum 20 MB). |
+| POST | `/api/documents/sync` | Rebuild the vector index. |
+| GET | `/api/documents/status` | Check indexing status. |
 
-Exemple :
+### Example Chat Request
+
 ```json
-POST /api/chat
-{ "session_id": "5d80a468-…", "question": "Quel est l'objectif du cahier des charges ?" }
+{
+  "session_id": "5d80a468-0000-0000-0000-000000000000",
+  "question": "What is the main objective of this document?"
+}
 ```
-→
+
+### Example Response
+
 ```json
-{ "answer": "L'objectif est de définir …", "sources": [{ "filename": "…", "page": 5, "similarity": 0.49, "snippet": "…" }] }
+{
+  "answer": "The main objective is to define...",
+  "sources": [
+    {
+      "filename": "document.pdf",
+      "page": 5,
+      "similarity": 0.49,
+      "snippet": "..."
+    }
+  ]
+}
 ```
-*(Le frontend n'affiche pas `sources` : choix design ; les données restent dispo pour les appels directs.)*
 
 ---
 
-## 🧭 Limites connues & roadmap
+## 🧠 How the RAG Pipeline Works
 
-- L'index vectoriel est **en mémoire** → reconstruit à chaque démarrage (rapide, documents locaux persistés sur disque). Roadmap : persistance **pgvector** dans le PostgreSQL existant
-- Pas d'authentification projet (usage local). Roadmap : JWT + multi-utilisateurs
-- Suppression / renommage des conversations, mode sombre : à venir
-- Port hôte `5433` (le compose redirige 5433→5432 pour cohabiter avec un PostgreSQL local éventuel)
+1. **PDF Upload:** The user uploads a PDF document.
+2. **Text Extraction:** PyPDF extracts the document content.
+3. **Text Chunking:** The content is divided into smaller overlapping chunks.
+4. **Embedding Generation:** Sentence Transformers converts chunks into numerical vectors.
+5. **Vector Storage:** Vectors are stored in an in-memory NumPy index.
+6. **Similarity Search:** The retriever finds the most relevant chunks using cosine similarity.
+7. **LLM Processing:** Groq generates the response using the question, conversation history, and available document context.
+8. **Source Citations:** When document context is used, the response includes filename and page references.
 
 ---
 
-## 👤 Auteur
+## 🧭 Limitations & Future Improvements
 
-**Raed Zayoud** — [raedzayoud](https://github.com/raedzayoud)
+- **In-memory Vector Store:** The vector index is rebuilt at startup. Future improvement: PostgreSQL with pgvector.
+- **No Authentication:** Currently designed for local usage. Future improvement: JWT authentication and multi-user support.
+- **Conversation Management:** Conversation deletion and renaming are planned.
+- **Dark Mode:** Planned for a future release.
+- **Testing:** Expand backend coverage with pytest.
 
-Projet d'apprentissage du RAG full-stack : si ce dépôt vous a aidé, une ⭐ fait toujours plaisir !
+---
+
+## 👨‍💻 Author
+
+**Raed Zayoud**
+
+Software Engineer | Full-Stack Developer | AI & RAG Enthusiast
+
+- GitHub: [@raedzayoud](https://github.com/raedzayoud)
+
+---
+
+⭐ If you find this project useful, consider giving it a star!
